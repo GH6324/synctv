@@ -10,8 +10,9 @@ function Help() {
     echo "-h: help"
     echo "-v: install version (default: latest)"
     echo "-p: github proxy (default: https://mirror.ghproxy.com/)"
-    echo "-a: microarchitecture (no default value)"
-    echo "  example: -a v2"
+    echo "-m: micro architecture (no default value)"
+    echo "  example: -m v2"
+    echo "  example: -m 6"
 }
 
 function Init() {
@@ -28,7 +29,7 @@ function Init() {
 }
 
 function ParseArgs() {
-    while getopts "hv:p:" arg; do
+    while getopts "hv:p:m:" arg; do
         case $arg in
         h)
             Help
@@ -40,7 +41,7 @@ function ParseArgs() {
         p)
             GH_PROXY="$OPTARG"
             ;;
-        a)
+        m)
             Microarchitecture="$OPTARG"
             ;;
         ?)
@@ -142,9 +143,13 @@ function InitDownloadTools() {
 function Download() {
     case "$download_tool" in
     curl)
-        curl -L "$1" -o "$2" --progress-bar
+        status_code=$(curl -L "$1" -o "$2" --progress-bar -w "%{http_code}\n")
         if [ $? -ne 0 ]; then
             echo "download $1 failed"
+            exit 1
+        fi
+        if [ "$status_code" != "200" ]; then
+            echo "download $1 failed, status code: $status_code"
             exit 1
         fi
         ;;

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/synctv-org/synctv/internal/cache"
 	"github.com/synctv-org/synctv/internal/conf"
 	"github.com/synctv-org/synctv/internal/model"
@@ -129,44 +130,55 @@ func (m *Movie) Channel() (*rtmps.Channel, error) {
 	if m.IsFolder {
 		return nil, errors.New("this is a folder")
 	}
-	err := m.initChannel()
+	c, err := m.initChannel()
 	if err != nil {
 		return nil, err
 	}
-	return m.channel.Load(), nil
+	return c, nil
 }
 
 func genTsName() string {
 	return utils.SortUUID()
 }
 
-func (m *Movie) compareAndSwapInitChannel() *rtmps.Channel {
+func (m *Movie) compareAndSwapInitChannel() (*rtmps.Channel, bool) {
 	c := m.channel.Load()
 	if c == nil {
 		c = rtmps.NewChannel()
 		if !m.channel.CompareAndSwap(nil, c) {
 			return m.compareAndSwapInitChannel()
 		}
-		c.InitHlsPlayer(hls.WithGenTsNameFunc(genTsName))
+		return c, true
 	}
-	return c
+	return c, false
 }
 
-func (m *Movie) initChannel() error {
+func (m *Movie) initChannel() (*rtmps.Channel, error) {
 	switch {
 	case m.Movie.MovieBase.Live && m.Movie.MovieBase.RtmpSource:
-		m.compareAndSwapInitChannel()
+		c, init := m.compareAndSwapInitChannel()
+		if !init {
+			return c, nil
+		}
+		err := c.InitHlsPlayer(hls.WithGenTsNameFunc(genTsName))
+		if err != nil {
+			return nil, fmt.Errorf("init rtmp hls player error: %v", err)
+		}
+		return c, nil
 	case m.Movie.MovieBase.Live && m.Movie.MovieBase.Proxy:
 		u, err := url.Parse(m.Movie.MovieBase.Url)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		switch u.Scheme {
 		case "rtmp":
-			c := m.compareAndSwapInitChannel()
+			c, init := m.compareAndSwapInitChannel()
+			if !init {
+				return c, nil
+			}
 			err = c.InitHlsPlayer(hls.WithGenTsNameFunc(genTsName))
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("init rtmp hls player error: %v", err)
 			}
 			go func() {
 				for {
@@ -175,21 +187,27 @@ func (m *Movie) initChannel() error {
 					}
 					cli := core.NewConnClient()
 					if err = cli.Start(m.Movie.MovieBase.Url, av.PLAY); err != nil {
+						log.Errorf("push live error: %v", err)
 						cli.Close()
 						time.Sleep(time.Second)
 						continue
 					}
 					if err := c.PushStart(rtmpProto.NewReader(cli)); err != nil {
+						log.Errorf("push live error: %v", err)
 						cli.Close()
 						time.Sleep(time.Second)
 					}
 				}
 			}()
+			return c, nil
 		case "http", "https":
-			c := m.compareAndSwapInitChannel()
+			c, init := m.compareAndSwapInitChannel()
+			if !init {
+				return c, nil
+			}
 			err := c.InitHlsPlayer(hls.WithGenTsNameFunc(genTsName))
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("init http hls player error: %v", err)
 			}
 			go func() {
 				for {
@@ -198,6 +216,7 @@ func (m *Movie) initChannel() error {
 					}
 					req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, m.Movie.MovieBase.Url, nil)
 					if err != nil {
+						log.Errorf("get live error: %v", err)
 						time.Sleep(time.Second)
 						continue
 					}
@@ -209,22 +228,25 @@ func (m *Movie) initChannel() error {
 					}
 					resp, err := uhc.Do(req)
 					if err != nil {
+						log.Errorf("get live error: %v", err)
+						resp.Body.Close()
 						time.Sleep(time.Second)
 						continue
 					}
 					if err := c.PushStart(flv.NewReader(resp.Body)); err != nil {
+						log.Errorf("push live error: %v", err)
+						resp.Body.Close()
 						time.Sleep(time.Second)
 					}
-					resp.Body.Close()
 				}
 			}()
+			return c, nil
 		default:
-			return errors.New("unsupported scheme")
+			return nil, errors.New("unsupported scheme")
 		}
 	default:
-		return errors.New("this movie not support channel")
+		return nil, errors.New("this movie not support channel")
 	}
-	return nil
 }
 
 func (movie *Movie) Validate() error {

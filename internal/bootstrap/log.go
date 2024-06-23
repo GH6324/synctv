@@ -18,7 +18,7 @@ import (
 )
 
 func setLog(l *logrus.Logger) {
-	if flags.Dev {
+	if flags.Global.Dev {
 		l.SetLevel(logrus.DebugLevel)
 		l.SetReportCaller(true)
 	} else {
@@ -28,7 +28,7 @@ func setLog(l *logrus.Logger) {
 }
 
 var logCallerIgnoreFuncs = map[string]struct{}{
-	"github.com/synctv-org/synctv/server/middlewares.Init.NewLog.func1": {},
+	"github.com/synctv-org/synctv/server/middlewares.logColor": {},
 }
 
 func InitLog(ctx context.Context) (err error) {
@@ -55,7 +55,7 @@ func InitLog(ctx context.Context) (err error) {
 		} else {
 			w = l
 		}
-		if flags.Dev || flags.LogStd {
+		if flags.Global.Dev || flags.Global.LogStd {
 			logrus.SetOutput(io.MultiWriter(os.Stdout, w))
 			logrus.Infof("log: enable log to stdout and file: %s", conf.Conf.Log.FilePath)
 		} else {
@@ -81,8 +81,8 @@ func InitLog(ctx context.Context) (err error) {
 		logrus.SetFormatter(&logrus.TextFormatter{
 			ForceColors:      forceColor,
 			DisableColors:    !forceColor,
-			ForceQuote:       flags.Dev,
-			DisableQuote:     !flags.Dev,
+			ForceQuote:       flags.Global.Dev,
+			DisableQuote:     !flags.Global.Dev,
 			DisableSorting:   true,
 			FullTimestamp:    true,
 			TimestampFormat:  time.DateTime,

@@ -15,7 +15,7 @@ type dbVersion struct {
 	Upgrade     func(*gorm.DB) error
 }
 
-const CurrentVersion = "0.0.9"
+const CurrentVersion = "0.0.10"
 
 var models = []any{
 	new(model.Setting),
@@ -73,6 +73,9 @@ var dbVersions = map[string]dbVersion{
 		NextVersion: "0.0.9",
 	},
 	"0.0.9": {
+		NextVersion: "0.0.10",
+	},
+	"0.0.10": {
 		NextVersion: "",
 	},
 }
@@ -92,7 +95,7 @@ func UpgradeDatabase() error {
 		return err
 	}
 	currentVersion := setting.Value
-	if flags.ForceAutoMigrate || currentVersion != CurrentVersion {
+	if flags.Global.ForceAutoMigrate || currentVersion != CurrentVersion {
 		err = autoMigrate(models...)
 		if err != nil {
 			log.Fatalf("failed to auto migrate: %s", err.Error())
